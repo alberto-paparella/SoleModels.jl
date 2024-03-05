@@ -2,7 +2,7 @@ using SoleModels
 using SoleModels: LeafModel
 import SoleLogics: natoms
 
-####################### Utils Functions #####################
+####################### Utility Functions #####################
 
 function accuracy(
     y_true::AbstractArray,

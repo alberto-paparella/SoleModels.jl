@@ -2,6 +2,10 @@ using SoleModels
 using SoleModels: LeafModel
 import SoleLogics: natoms
 
+############################# Utils ###########################
+
+nargs(func::Function) = length(methods(func)[1].sig.parameters) - 1
+
 ####################### Utility Functions #####################
 
 function accuracy(
@@ -79,7 +83,7 @@ function readmetrics(m::Rule; digits = 2, dictmetrics::Dict{Symbol,Function} = D
         _gts_leaf = info(consequent(m)).supporting_labels
         coverage = length(_gts_leaf)/length(_gts)
         
-        merge(
+        return merge(
             readmetrics(consequent(m); digits = digits, kwargs...), 
             (; coverage = round(coverage; digits = digits)),
             if haskey(info(m), :supporting_predictions)
@@ -87,12 +91,14 @@ function readmetrics(m::Rule; digits = 2, dictmetrics::Dict{Symbol,Function} = D
                 metrics = (;)
 
                 for (key,func) in dictmetrics
-                    if Base.nargs(func) == 2
-                        merge(metrics, (; key => func(_gts,_preds)))
+                    if nargs(func) == 2
+                        metrics = merge(metrics, (; key => func(_gts,_preds)))
                     end
                 end
 
                 metrics
+            else 
+                (;)
             end
         )
     elseif haskey(info(m), :supporting_labels)
@@ -104,12 +110,26 @@ function readmetrics(m::Rule; digits = 2, dictmetrics::Dict{Symbol,Function} = D
                 metrics = (;)
 
                 for (key,func) in dictmetrics
-                    if Base.nargs(func) == 1
-                        merge(metrics, (; key => func(_gts)))
+                    if nargs(func) == 1
+                        metrics = merge(metrics, (; key => func(_gts)))
                     end
                 end
 
                 metrics
+            end,
+            if haskey(info(m), :supporting_predictions)
+                _preds = info(m).supporting_predictions
+                metrics = (;)
+
+                for (key,func) in dictmetrics
+                    if nargs(func) == 2
+                        metrics = merge(metrics, (; key => func(_gts,_preds)))
+                    end
+                end
+
+                metrics
+            else 
+                (;)
             end
         )
     elseif haskey(info(consequent(m)), :supporting_labels)
@@ -259,10 +279,10 @@ end
 
 function metrics(
     rule::Rule,
-    X::Unione{Nothing,AbstractInterpretationSet},
-    Y::Unione{Nothing,AbstractVector{<:Label}};
+    X::Union{Nothing,AbstractInterpretationSet} = nothing,
+    Y::Union{Nothing,AbstractVector{<:Label}} = nothing;
     return_model::Bool = false,
-    dictmetrics::Dict{Symbol,Function} = Dict{Symbol,Function}(),
+    dictmetrics::Dict{Symbol,Function} = Dict{Symbol,Function}([(:accuracy,accuracy),]),
     kwargs...,
 )
     info_rule = info(rule)
@@ -287,18 +307,22 @@ function metrics(
         end
     end
 
-    new_inforule = begin
+    tmp_inforule = begin
         if !isnothing(supporting_labels) && !isnothing(supporting_predictions)
-            (info_rule..., supporting_labels = supporting_labels, supporting_predictions = supporting_predictions)
+            idxs_valid = supporting_predictions .!= nothing
+            (info_rule..., supporting_labels = supporting_labels[idxs_valid], supporting_predictions = supporting_predictions[idxs_valid])
         elseif !isnothing(supporting_labels)
             (info_rule..., supporting_labels = supporting_labels)
         elseif !isnothing(supporting_predictions)
-            (info_rule..., supporting_predictions = supporting_predictions)
+            idxs_valid = supporting_predictions .!= nothing
+            (info_rule..., supporting_predictions = supporting_predictions[idxs_valid])
         else
             info_rule
         end
     end
 
-    newrule = Rule(antecedent(rule),consequent(rule),new_inforule)
-    readmetrics(newrule; dictmetrics=dictmetrics)
+    tmprule = Rule(antecedent(rule),consequent(rule),tmp_inforule)
+    updatedinfo = readmetrics(tmprule; dictmetrics=dictmetrics)
+
+    return return_model ? Rule(antecedent(rule),consequent(rule),updatedinfo) : updatedinfo
 end

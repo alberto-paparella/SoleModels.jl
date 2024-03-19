@@ -11,7 +11,7 @@ n_instances = 20
 rng = MersenneTwister(42)
 
 # Dataset Construction
-attributes = ["fever","pressure"]
+attributes = ["fever", "pressure"]
 attributes_values = [
     [rand(rng,collect(36:0.5:40)) for i in 1:n_instances],
     [rand(rng,collect(60:2:130)) for i in 1:n_instances],
@@ -29,13 +29,13 @@ logiset = scalarlogiset(dataset, features; use_full_memoization = false, use_one
 # Build a formula on scalar conditions
 condition1 = ScalarCondition(features[1], >=, 38.0)
 condition2 = ScalarCondition(features[2], <, 110)
-antecedentrule = Atom(condition1) ∧ Atom(condition2)
+antd = Atom(condition1) ∧ Atom(condition2)
 
 # Build consequent
-consequentrule = "sick"
+consq = "sick"
 
 # Build Rule without info
-rule = Rule(antecedentrule, consequentrule)
+rule = Rule(antd, consq)
 
 inforule = metrics(rule)
 inforulelogiset = metrics(rule,logiset)
@@ -58,7 +58,7 @@ newruleall = metrics(rule,logiset,y_true; return_model=true)
 @test SoleModels.info(newruleall) == (ninstances = 8, accuracy = 1.0,)
 
 # Build Rule with info
-rule = Rule(antecedentrule,consequentrule,(; supporting_labels = y_true))
+rule = Rule(antd,consq,(; supporting_labels = y_true))
 
 inforule = metrics(rule)
 inforulelogiset = metrics(rule,logiset)
@@ -81,8 +81,8 @@ newruleall = metrics(rule,logiset,y_true; return_model=true)
 @test SoleModels.info(newruleall) == (ninstances = 8, accuracy = 1.0,)
 
 # Build Rule with info
-supp_preds = apply(Rule(antecedentrule,consequentrule),logiset)
-rule = Rule(antecedentrule,consequentrule,(; supporting_labels = y_true, supporting_predictions = supp_preds))
+supp_preds = apply(Rule(antd,consq),logiset)
+rule = Rule(antd,consq,(; supporting_labels = y_true, supporting_predictions = supp_preds))
 
 inforule = metrics(rule)
 inforulelogiset = metrics(rule,logiset)

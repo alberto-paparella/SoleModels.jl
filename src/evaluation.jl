@@ -2,10 +2,6 @@ using SoleModels
 using SoleModels: LeafModel
 import SoleLogics: natoms
 
-############################# Utils ###########################
-
-nargs(func::Function) = length(methods(func)[1].sig.parameters) - 1
-
 ####################### Utility Functions #####################
 
 function accuracy(
@@ -59,79 +55,87 @@ Performance metrics can be computed when the `info` structure of the model has t
 
 The `digits` keyword argument is used to `round` accuracy/confidence metrics.
 """
-function readmetrics(m::LeafModel{L}; digits = 2, dictmetrics::Dict{Symbol,Function} = Dict{Symbol,Function}()) where {L<:Label}
-    merge(if haskey(info(m), :supporting_labels) && haskey(info(m), :supporting_predictions)
-        _gts = info(m).supporting_labels
-        _preds = info(m).supporting_predictions
-        if L <: CLabel
-            (; ninstances = length(_gts), confidence = round(accuracy(_gts, _preds); digits = digits))
-        elseif L <: RLabel
-            (; ninstances = length(_gts), mae = round(mae(_gts, _preds); digits = digits))
+function readmetrics(
+    m::LeafModel{L};
+    digits = 2,
+    dictmetrics::Dict{Symbol,Function} = Dict{Symbol,Function}(),
+) where {L<:Label}
+    metrics = begin
+        if haskey(info(m), :supporting_labels) && haskey(info(m), :supporting_predictions)
+            _gts = info(m).supporting_labels
+            _preds = info(m).supporting_predictions
+            if L <: CLabel
+                (; ninstances = length(_gts), confidence = round(accuracy(_gts, _preds); digits = digits))
+            elseif L <: RLabel
+                (; ninstances = length(_gts), mae = round(mae(_gts, _preds); digits = digits))
+            else
+                error("Could not compute readmetrics with unknown label type: $(L).")
+            end
+        elseif haskey(info(m), :supporting_labels)
+            return (; ninstances = length(info(m).supporting_labels))
         else
-            error("Could not compute readmetrics with unknown label type: $(L).")
+            return (;)
         end
-    elseif haskey(info(m), :supporting_labels)
-        return (; ninstances = length(info(m).supporting_labels))
-    else
-        return (;)
-    end, (; coverage = 1.0))
+    end
+
+    for (key, func) in dictmetrics
+        metricval = func(_gts, _preds)
+        metrics = merge(metrics, (; key => metricval))
+    end
+
+    return merge(metrics, (; coverage = 1.0))
 end
 
-function readmetrics(m::Rule; digits = 2, dictmetrics::Dict{Symbol,Function} = Dict{Symbol,Function}(), kwargs...)
-    if haskey(info(m), :supporting_labels) && haskey(info(consequent(m)), :supporting_labels)
+function readmetrics(
+    m::Rule;
+    digits = 2,
+    dictmetrics::Dict{Symbol,Function} = Dict{Symbol,Function}(),
+    kwargs...
+)
+    if haskey(info(m), :supporting_labels)
         _gts = info(m).supporting_labels
-        _gts_leaf = info(consequent(m)).supporting_labels
-        coverage = length(_gts_leaf)/length(_gts)
-        
-        return merge(
-            readmetrics(consequent(m); digits = digits, kwargs...), 
-            (; coverage = round(coverage; digits = digits)),
+        priority_metrics = begin
             if haskey(info(m), :supporting_predictions)
                 _preds = info(m).supporting_predictions
                 metrics = (;)
 
-                for (key,func) in dictmetrics
-                    if nargs(func) == 2
-                        metrics = merge(metrics, (; key => func(_gts,_preds)))
-                    end
+                for (key, func) in dictmetrics
+                    metricval = func(_gts, _preds)
+                    metrics = merge(metrics, (; key => metricval))
                 end
 
                 metrics
-            else 
+            else
                 (;)
             end
-        )
-    elseif haskey(info(m), :supporting_labels)
-        _gts = info(m).supporting_labels
+        end
         
-        return merge(
-            (; ninstances = length(_gts)),
-            begin
-                metrics = (;)
+        priority_metrics = merge(priority_metrics, (; ninstances=length(_gts)))
 
-                for (key,func) in dictmetrics
-                    if nargs(func) == 1
-                        metrics = merge(metrics, (; key => func(_gts)))
+        if haskey(info(consequent(m)), :supporting_labels)
+            cons_metrics = readmetrics(consequent(m); digits=digits, kwargs...)
+            _gts_leaf = info(consequent(m)).supporting_labels
+            coverage = length(_gts_leaf)/length(_gts)
+            return merge(
+                cons_metrics,
+                (; coverage = round(coverage; digits = digits)),
+                priority_metrics
+            )
+        else
+            return merge(
+                begin
+                    metrics = (;)
+
+                    for (key,func) in dictmetrics
+                        metricval = func(_gts)
+                        metrics = merge(metrics, (; key => metricval))
                     end
-                end
 
-                metrics
-            end,
-            if haskey(info(m), :supporting_predictions)
-                _preds = info(m).supporting_predictions
-                metrics = (;)
-
-                for (key,func) in dictmetrics
-                    if nargs(func) == 2
-                        metrics = merge(metrics, (; key => func(_gts,_preds)))
-                    end
-                end
-
-                metrics
-            else 
-                (;)
-            end
-        )
+                    metrics
+                end,
+                priority_metrics
+            )
+        end
     elseif haskey(info(consequent(m)), :supporting_labels)
         return (; ninstances = length(info(m).supporting_labels))
     else
@@ -140,69 +144,69 @@ function readmetrics(m::Rule; digits = 2, dictmetrics::Dict{Symbol,Function} = D
 end
 
 
-"""
-    evaluaterule(
-        r::Rule{O},
-        X::AbstractInterpretationSet,
-        Y::AbstractVector{L}
-    ) where {O,L<:Label}
+# """
+#     evaluaterule(
+#         r::Rule{O},
+#         X::AbstractInterpretationSet,
+#         Y::AbstractVector{L}
+#     ) where {O,L<:Label}
 
-Evaluate the rule on a labeled dataset, and return a `NamedTuple` consisting of:
-- `antsat::Vector{Bool}`: satsfaction of the antecedent for each instance in the dataset;
-- `ys::Vector{Union{Nothing,O}}`: rule prediction. For each instance in X:
-    - `consequent(rule)` if the antecedent is satisfied,
-    - `nothing` otherwise.
+# Evaluate the rule on a labeled dataset, and return a `NamedTuple` consisting of:
+# - `antsat::Vector{Bool}`: satsfaction of the antecedent for each instance in the dataset;
+# - `ys::Vector{Union{Nothing,O}}`: rule prediction. For each instance in X:
+#     - `consequent(rule)` if the antecedent is satisfied,
+#     - `nothing` otherwise.
 
-See also
-[`Rule`](@ref),
-[`SoleLogics.AbstractInterpretationSet`](@ref),
-[`Label`](@ref),
-[`checkantecedent`](@ref).
-"""
-function evaluaterule(
-    rule::Rule,
-    X::AbstractInterpretationSet,
-    Y::AbstractVector{<:Label};
-    kwargs...,
-)
-    #println("Evaluation rule in time...")
-    ys = apply(rule,X)
-    #if X isa SupportedLogiset
-    #    println("# Memoized Values: $(nmemoizedvalues(X))")
-    #end
+# See also
+# [`Rule`](@ref),
+# [`SoleLogics.AbstractInterpretationSet`](@ref),
+# [`Label`](@ref),
+# [`checkantecedent`](@ref).
+# """
+# function evaluaterule(
+#     rule::Rule,
+#     X::AbstractInterpretationSet,
+#     Y::AbstractVector{<:Label};
+#     kwargs...,
+# )
+#     #println("Evaluation rule in time...")
+#     ys = apply(rule,X)
+#     #if X isa SupportedLogiset
+#     #    println("# Memoized Values: $(nmemoizedvalues(X))")
+#     #end
 
-    antsat = ys .!= nothing
+#     antsat = ys .!= nothing
 
-    #=
-    cons_sat = begin
-        idxs_sat = findall(antsat .== true)
-        cons_sat = Vector{Union{Bool,Nothing}}(fill(nothing, length(Y)))
+#     #=
+#     cons_sat = begin
+#         idxs_sat = findall(antsat .== true)
+#         cons_sat = Vector{Union{Bool,Nothing}}(fill(nothing, length(Y)))
 
-        idxs_true = begin
-            idx_cons = findall(outcome(consequent(rule)) .== Y)
-            intersect(idxs_sat, idx_cons)
-        end
-        idxs_false = begin
-            idx_cons = findall(outcome(consequent(rule)) .!= Y)
-            intersect(idxs_sat, idx_cons)
-        end
-        cons_sat[idxs_true]  .= true
-        cons_sat[idxs_false] .= false
-        cons_sat
-    end
-    =#
+#         idxs_true = begin
+#             idx_cons = findall(outcome(consequent(rule)) .== Y)
+#             intersect(idxs_sat, idx_cons)
+#         end
+#         idxs_false = begin
+#             idx_cons = findall(outcome(consequent(rule)) .!= Y)
+#             intersect(idxs_sat, idx_cons)
+#         end
+#         cons_sat[idxs_true]  .= true
+#         cons_sat[idxs_false] .= false
+#         cons_sat
+#     end
+#     =#
 
-    # - `cons_sat::Vector{Union{Nothing,Bool}}`: for each instance in the dataset:
-    #     - `nothing` if antecedent is not satisfied.
-    #     - `false` if the antecedent is satisfied, but the consequent does not match the ground-truth label,
-    #     - `true` if the antecedent is satisfied, and the consequent matches the ground-truth label,
+#     # - `cons_sat::Vector{Union{Nothing,Bool}}`: for each instance in the dataset:
+#     #     - `nothing` if antecedent is not satisfied.
+#     #     - `false` if the antecedent is satisfied, but the consequent does not match the ground-truth label,
+#     #     - `true` if the antecedent is satisfied, and the consequent matches the ground-truth label,
 
-    return (;
-        ys = ys,
-        antsat     = antsat,
-        # cons_sat    = cons_sat,
-    )
-end
+#     return (;
+#         ys = ys,
+#         antsat     = antsat,
+#         # cons_sat    = cons_sat,
+#     )
+# end
 
 # """
 #     natoms(rule::Rule{O,<:Formula}) where {O}
@@ -277,52 +281,51 @@ end
 ############################################################################################
 ############################################################################################
 
-function metrics(
+function metrics!(
     rule::Rule,
+    X::Union{Nothing,AbstractInterpretationSet}=nothing,
+    Y::Union{Nothing,AbstractVector{<:Label}}=nothing;
+    return_model::Bool=false,
+    dictmetrics::Dict{Symbol,Function}=Dict{Symbol,Function}([(:accuracy, accuracy),]),
+    kwargs...,
+)
+    error("TODO")
+end
+
+function metrics(
+    m::AbstractModel,
     X::Union{Nothing,AbstractInterpretationSet} = nothing,
     Y::Union{Nothing,AbstractVector{<:Label}} = nothing;
     return_model::Bool = false,
     dictmetrics::Dict{Symbol,Function} = Dict{Symbol,Function}([(:accuracy,accuracy),]),
-    kwargs...,
+    
 )
-    info_rule = info(rule)
+    _info = info(m)
+    @assert !(xor(isnothing(X), isnothing(Y))) "Cannot compute metrics with only one between X and Y."
 
-    supporting_labels = begin
-        if !isnothing(Y)
-            Y 
-        elseif haskey(info_rule,:supporting_labels)
-            info_rule.supporting_labels
-        else 
-            nothing
-        end
-    end
-
-    supporting_predictions = begin
+    supporting_labels, supporting_predictions = begin
         if !isnothing(X)
-            apply(rule,X)
-        elseif haskey(info_rule,:supporting_predictions)
-            info_rule.supporting_predictions
-        else 
-            nothing
-        end
-    end
-
-    tmp_inforule = begin
-        if !isnothing(supporting_labels) && !isnothing(supporting_predictions)
-            idxs_valid = supporting_predictions .!= nothing
-            (info_rule..., supporting_labels = supporting_labels[idxs_valid], supporting_predictions = supporting_predictions[idxs_valid])
-        elseif !isnothing(supporting_labels)
-            (info_rule..., supporting_labels = supporting_labels)
-        elseif !isnothing(supporting_predictions)
-            idxs_valid = supporting_predictions .!= nothing
-            (info_rule..., supporting_predictions = supporting_predictions[idxs_valid])
+            Y, apply(m, X)
         else
-            info_rule
+            info(m, :supporting_labels, nothing), info(m, :supporting_predictions, nothing)
+        end
+    end
+    
+    newmodel = begin
+        if !isnothing(supporting_labels) && !isnothing(supporting_predictions)
+            m = rewriteinfo(m, :supporting_labels, supporting_labels)
+            m = rewriteinfo(m, :supporting_predictions, supporting_predictions)
+        elseif !isnothing(supporting_labels)
+            m = rewriteinfo(m, :supporting_labels, supporting_labels)
+        elseif !isnothing(supporting_predictions)
+            m = rewriteinfo(m, :supporting_predictions, supporting_predictions)
+        else
+            m
         end
     end
 
-    tmprule = Rule(antecedent(rule),consequent(rule),tmp_inforule)
-    updatedinfo = readmetrics(tmprule; dictmetrics=dictmetrics)
+    # metrics = readmetrics(newmodel; dictmetrics=dictmetrics, kwargs...,)
+    metrics = readmetrics(newmodel; kwargs...,)
 
-    return return_model ? Rule(antecedent(rule),consequent(rule),updatedinfo) : updatedinfo
+    return return_model ? (metrics, newmodel) : metrics
 end

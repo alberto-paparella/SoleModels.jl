@@ -306,15 +306,11 @@ struct FunctionModel{O} <: LeafModel{O}
 
     function FunctionModel{O}(
         f::Function,
-        info::NamedTuple = (;);
-        silent = false
+        info::NamedTuple = (;),
     ) where {O}
-        # TODO fix warning
-        if !silent
-            @warn "Over efficiency concerns, please consider wrapping"*
-            "Julia Function's into FunctionWrapper{O,Tuple{T}}"*
-            " structures, where T<:SoleModels.AbstractInterpretation is the interpretation type."
-        end
+        @warn "Over efficiency concerns, please consider wrapping"*
+        "Julia Function's into FunctionWrapper{O,Tuple{SoleModels.AbstractInterpretation}}"*
+        " structures,where O is their return type."
         f = FunctionWrapper{O,Tuple{AbstractInterpretation}}(f)
         FunctionModel{O}(f, info)
     end
@@ -1060,6 +1056,7 @@ function meandelaydl(m::DecisionList)
         return mean(i[:delays])
     end
 end
+
 
 ############################################################################################
 

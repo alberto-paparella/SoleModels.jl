@@ -154,11 +154,18 @@ end
 using PrettyTables
 
 # TODO document
-function metricstable(ms::Vector{<:Rule}; metrics_kwargs = (;), syntaxstring_kwargs = (;), pretty_table_kwargs...)
+function metricstable(ms::Vector{<:Rule}; subfeats = nothing, metrics_kwargs = (;), syntaxstring_kwargs = (;), pretty_table_kwargs...)
     mets = readmetrics.(ms; metrics_kwargs...)
     colnames = unique(Iterators.flatten(keys.(mets)))
 
     data = hcat(syntaxstring.(antecedent.(ms); syntaxstring_kwargs...), strip.(displaymodel.(consequent.(ms); show_symbols = false)), [[get(met, colname, "") for met in mets] for colname in colnames]...)
+    if !isnothing(subfeats)
+        for row in eachrow(data)
+            matches = [parse(Int, d.captures[1]) for d in eachmatch(PATTERN, row[1])]
+            replacements = Dict("[V$m]" => "[" * subfeats[m] * "]" for m in matches)
+            row[1] = replace(row[1], replacements...)
+        end
+    end
     header = ["Antecedent", "Consequent", colnames...]
     pretty_table(
         data;

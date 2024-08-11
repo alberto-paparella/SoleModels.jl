@@ -40,6 +40,8 @@ const default_indentation = (
     default_indentation_last_space,
 )
 
+const PATTERN = r"\[V(\d+)\]"
+
 ############################################################################################
 
 Base.show(io::IO, m::AbstractModel) = printmodel(io, m)
@@ -227,7 +229,8 @@ function printmodel(
     tree_mode = (subtreeheight(m) != 1),
     show_symbols = true,
     syntaxstring_kwargs = (; parenthesize_atoms = true),
-    arrow = "↣", # "🠮", # ⮞, 🡆, 🠮, 🠲, =>
+    arrow = "↣", # "🠮", # ⮞, 🡆, 🠮, 🠲, =>,
+    subfeats::Union{Nothing,AbstractVector{<:AbstractString}} = nothing,
     kwargs...,
 )
     (
@@ -256,6 +259,12 @@ function printmodel(
             @warn "One intermediate final was hidden. TODO expand code!"
         end
         ant_str = syntaxstring(antecedent(m); (haskey(info(m), :syntaxstring_kwargs) ? info(m).syntaxstring_kwargs : (;))..., syntaxstring_kwargs..., kwargs...)
+        if !isnothing(subfeats)
+            matches = [parse(Int, d.captures[1]) for d in eachmatch(PATTERN, ant_str)]
+            replacements = Dict("[V$m]" => "[" * subfeats[m] * "]" for m in matches)
+            ant_str = replace(ant_str, replacements...)
+            kwargs = (kwargs..., subfeats = subfeats)
+        end
         if tree_mode
             show_shortforms != false && haskey(info(m), :shortform) && print(io, "\t\t\t\t\t\t\tSHORTFORM: $(syntaxstring(info(m)[:shortform]))")
             print(io, "$(pipe)$(ant_str)")
@@ -305,6 +314,7 @@ function printmodel(
     tree_mode = true, # subtreeheight(m) != 1
     show_symbols = true,
     syntaxstring_kwargs = (; parenthesize_atoms = true),
+    subfeats::Union{Nothing,AbstractVector{<:AbstractString}} = nothing,
     kwargs...,
 )
     (
@@ -328,6 +338,12 @@ function printmodel(
     if isnothing(max_depth) || depth < max_depth
         pipe = "$(indentation_list_children) "
         line_str = "$(pipe)$(syntaxstring(antecedent(m); (haskey(info(m), :syntaxstring_kwargs) ? info(m).syntaxstring_kwargs : (;))..., syntaxstring_kwargs..., kwargs...))"
+        if !isnothing(subfeats)
+            matches = [parse(Int, d.captures[1]) for d in eachmatch(PATTERN, line_str)]
+            replacements = Dict("[V$m]" => "[" * subfeats[m] * "]" for m in matches)
+            line_str = replace(line_str, replacements...)
+            kwargs = (kwargs..., subfeats = subfeats)
+        end
         if show_intermediate_finals != false && haskey(info(m), :this)
             ind_str = ""
             show_shortforms != false && haskey(info(m), :shortform) && (line_str = rpad(line_str, "\t\t\t\t\t\t\tSHORTFORM: $(syntaxstring(info(m)[:shortform]))"))
